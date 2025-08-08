@@ -1,4 +1,16 @@
 class People {
+    // Smell: Primitive Obsession: 
+    // The code heavily relies on primitive types where domain objects would be more appropriate.
+
+    // Using raw dates and magic numbers instead of proper abstractions
+    // Numbers like 15, 365, 356, 85, 18, 30, 255 appear without explanation.
+
+    // Smell: Inconsistent Naming and Logic     
+    // Data Integrity Violations: Legal compliance issues if used for age verification
+    // Name says 16 
+    // What is the intended behavior? Under 16 should mean less than 16 years old.
+    // Either rename to `Under15` or change the calculation to use 16.    
+    // FIX: Use proper date libraries and clear business rules
     private static readonly Under16: Date = new Date(Date.now() - (15 * 365 * 24 * 60 * 60 * 1000));
     
     public name: string;
@@ -6,9 +18,14 @@ class People {
     
     constructor(name: string, dob?: Date) {
         this.name = name;
+        // Smell: Using People.Under16 as default DOB leads to confusing semantics.
+        // Why set dob default to a fixed date rather than require it explicitly?
+        // Could lead to hidden bugs (primitive obsession).
         this.dob = dob || People.Under16;
     }
-    
+
+    // Smell: These getters are trivial and do not encapsulate anything.
+    // If no logic is applied, consider exposing properties directly or use getters.
     public getName(): string {
         return this.name;
     }
@@ -18,11 +35,20 @@ class People {
     }
 }
 
+// Single Responsibility Principle Violation : Classes have multiple, unrelated responsibilities.
+
+// PROBLEM: BirthingUnit does too many things:
+// 1. Stores people (data management)
+// 2. Generates random people (factory)
+// 3. Filters people (query logic)
+// 4. Handles marriages (business logic)
 class BirthingUnit {
+    // Smell: Comment is unclear ("MaxItemsToRetrieve") - remove or clarify.
     /**
      * MaxItemsToRetrieve
      */
-    private _people: People[];
+    // Smell:Long-lived mutable state inside class; unclear lifecycle.
+    private _people: People[];  
 
     constructor() {
         this._people = [];
@@ -33,22 +59,41 @@ class BirthingUnit {
      * @param j
      * @returns List<object>
      */
+    // Smell: Misleading Method Names - Violates Principle of Least Surprise
+    // Side effect is surprising for a method named "get".
+    // Also, `i` is unclear as a parameter name (long parameter list smell if extended).
     public getPeople(i: number): People[] {
+
+        // Memory Leaks & Performance Issues - Memory exhaustion in production, data mutation risks
         for (let j = 0; j < i; j++) {
+
+            // Useless Try-Catch Block: Generic try-catch that doesn't add value
             try {
+                // Smell: "dandon" typo in comment; unclear comment purpose.
                 // Creates a dandon Name
                 let name: string = "";
                 const random = Math.random();
+
+                // Smell: Random name generation with magic strings "Bob" 
+                // Could extract this to a helper function or config.
                 if (Math.floor(random * 2) === 0) {
                     name = "Bob";
                 } else {
                     name = "Betty";
                 }
+
+                // Smell: Mathematical Errors Causing Data Corruption - 356 days = incorrect ages
                 // Adds new people to the list
                 const age = Math.floor(Math.random() * (85 - 18) + 18) * 356;
+
+                // Duplicate Code - Date Calculations Repeated
+                // Age/date calculation logic appears multiple times with slight variations.
                 const birthDate = new Date(Date.now() - (age * 24 * 60 * 60 * 1000));
                 this._people.push(new People(name, birthDate));
             } catch (e) {
+                // Smell: Catching generic error and immediately throwing a new error without cause loses stack trace.
+                // Why try/catch at all? If this should never happen, better to let error propagate.
+
                 // Dont think this should ever happen
                 throw new Error("Something failed in user creation");
             }
@@ -56,16 +101,29 @@ class BirthingUnit {
         return this._people;
     }
 
+    // Smell: Method name `getBobs` is specific but the filtering logic is mixed.
+    // The date comparison looks reversed: `x.dob >= thirtyYearsAgo` means born after 30 years ago = younger than 30.
+    // Probably a bug (should be `<=`).
     private getBobs(olderThan30: boolean): People[] {
         const thirtyYearsAgo = new Date(Date.now() - (30 * 356 * 24 * 60 * 60 * 1000));
+
+        // Reversed Logic in Age Filtering: This finds people YOUNGER than 30, not olde
         return olderThan30 
             ? this._people.filter(x => x.name === "Bob" && x.dob >= thirtyYearsAgo)
             : this._people.filter(x => x.name === "Bob");
     }
 
+    // Missing Input Validation & Error Handling
+    // No null checks, no type validation
+    // - It checks if lastName contains "test" and returns just first name — unclear why.
+    // - The line `(p.name.length + lastName).length > 255` is incorrect, it sums lengths but then accesses `.length` on a number.
+    // - The substring is created but result discarded — no effect.
+    // - No validation on input types.
     public getMarried(p: People, lastName: string): string {
         if (lastName.includes("test"))
             return p.name;
+
+        // Incorrect Mathematical Logic: This adds a number to a string, then checks .length on the result
         if ((p.name.length + lastName).length > 255) {
             (p.name + " " + lastName).substring(0, 255);
         }
@@ -75,3 +133,60 @@ class BirthingUnit {
 }
 
 export { People, BirthingUnit };
+
+
+// Most Concerning Code Smell: Data Integrity Violations
+// Data Integrity Violations
+// IMPACT: Legal compliance issues if used for age verification
+// FIX: Use proper date libraries and clear business rules
+
+// Memory Leaks & Performance Issues
+// Memory exhaustion in production, data mutation risks
+
+// Mathematical Errors Causing Data Corruption
+// 356 days = incorrect ages
+
+// Possible questions
+// 1.Age Calculation Logic
+// - What is the intended business rule for "Under16" classification? Should this be exactly 16 years, or 15 years + some months?
+// - I notice you use 356 days in the age calculation instead of 365. Is this intentional? If so, what calendar system are we following?
+// - Will this code be used for legal age verification (voting, alcohol purchases, etc.)? If yes, we need to be very precise with these calculations.
+
+// 2. Age Filtering Logic
+// - Can you walk me through the intended behavior with a concrete example?
+// - When olderThan30 = true, should this return Bobs born before 1994 or after 1994?
+// - The >= comparison seems to return people younger than 30 - is this intentional or should it be <=?
+
+// 3. Marriage Name Logic
+// - What should happen when the combined name length exceeds 255 characters? Should we truncate, reject, or handle differently?
+// - The substring result isn't returned or stored - is this intentional?
+// - Why does lastName.includes("test") return only the first name? Is this a security feature or business rule?
+
+// 4. Method Behavior
+// - The method name suggests it retrieves people, but it actually creates new ones. Is this intended behavior?
+// - Should this method be renamed to something like generatePeople() to be clearer?
+// - Do you want the method to return only the newly created people, or all people in the collection?
+
+// 5. Data Management
+// - What's the expected maximum number of people this system will handle in production?
+// - How often will getPeople() be called, and with what typical values?
+// - Do we need to retain all generated people permanently, or can we implement cleanup strategies?
+// - Will multiple parts of the system access this BirthingUnit simultaneously?
+
+// 6. Error Handling
+// - What specific errors are you expecting to catch here? The operations inside seem unlikely to throw exceptions.
+// - Do you need detailed error reporting for debugging, or is the generic message sufficient?
+// - What should the system do if person creation fails - retry, log and continue, or fail completely?
+
+// 7. Class Responsibilities
+// Current Observation:
+// The BirthingUnit class currently handles:
+
+// Creating people
+// Storing people
+// Filtering people by name and age
+// Marriage operations
+
+// Questions:
+// Is this intended to be a comprehensive person management class, or would you be open to separating these concerns?
+// Are there other operations you plan to add to this class?
